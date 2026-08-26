@@ -1,1 +1,0 @@
-# smu-ai-agent
