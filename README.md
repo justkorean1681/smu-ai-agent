@@ -87,5 +87,5 @@ LangChain 기반으로 구현되었으며, 이메일 내의 텍스트, URL, 발�
 .\.venv\Scripts\python.exe test_rate_limiter_standalone.py'
 ```
 
-<img width="1198" height="596" alt="image" src="https://github.com/user-attachments/assets/cf6687c0-533d-40e3-aa89-96397963a4a9" />
+<img width="599" height="298" alt="image" src="https://github.com/user-attachments/assets/cf6687c0-533d-40e3-aa89-96397963a4a9" />
 
