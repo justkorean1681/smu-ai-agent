@@ -81,3 +81,5 @@ LangChain 기반으로 구현되었으며, 이메일 내의 텍스트, URL, 발�
 
 # Rate Limiter (요청 제한) 테스트 - test_rate_limiter_standalone.py 실행 방법
 `python test_rate_limiter_standalone.py`
+'$env:PYTHONIOENCODING="utf-8"
+.\.venv\Scripts\python.exe test_rate_limiter_standalone.py'
