@@ -79,7 +79,7 @@ LangChain 기반으로 구현되었으며, 이메일 내의 텍스트, URL, 발�
 └── middleware.py # 보안 미들웨어 (Rate Limiter, PII 마스킹, Prompt Injection 필터)
 ```
 
-# Rate Limiter (요청 제한) 테스트 - test_rate_limiter_standalone.py 실행 방법
+# Rate Limiter (요청 제한) 테스트 - test_rate_limiter_standalone.py
 `python test_rate_limiter_standalone.py`
 
 ```
