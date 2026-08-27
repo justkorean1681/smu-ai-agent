@@ -1,5 +1,11 @@
 from langchain.agents import create_agent
 from tools import CUSTOM_TOOLS
+from middleware import (
+    rate_limiter_middleware,
+    pii_input_masking_middleware,
+    prompt_injection_filter_middleware,
+    pii_masking_middleware,
+)
 
 
 def create_phishing_analysis_agent():
@@ -32,6 +38,18 @@ def create_phishing_analysis_agent():
         model="gpt-5.4-mini",
         tools=CUSTOM_TOOLS,
         system_prompt=system_prompt,
+        # 미들웨어 실행 순서:
+        # 1. rate_limiter_middleware          - Agent 실행 전, 과도한 요청부터 차단 (Denial of Wallet 방지)
+        # 2. pii_input_masking_middleware     - 모델 최초 호출 전, 사용자 원본 메시지(이메일 원문)의
+        #                                        개인정보를 마스킹 → LLM은 애초에 raw PII를 보지 못함
+        # 3. prompt_injection_filter_middleware - EmailParserTool 결과에서 인젝션 시도를 탐지/무력화
+        # 4. pii_masking_middleware           - EmailParserTool 결과에도 추가로 마스킹 적용 (이중 방어)
+        middleware=[
+            rate_limiter_middleware,
+            pii_input_masking_middleware,
+            prompt_injection_filter_middleware,
+            pii_masking_middleware,
+        ],
     )
 
     return agent_executor
