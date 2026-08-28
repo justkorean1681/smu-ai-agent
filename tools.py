@@ -3,6 +3,7 @@ from email import policy
 from email.parser import Parser
 from urllib.parse import urlparse
 import re
+import os
 
 
 @tool(parse_docstring=True)
@@ -331,3 +332,94 @@ url_security_check_tool = URLSecurityCheckTool
 domain_lookup_tool = DomainLookupTool
 threat_intelligence_search_tool = ThreatIntelligenceSearchTool
 risk_score_tool = RiskScoreTool
+
+
+@tool(parse_docstring=True)
+def load_skill(skill_name: str) -> str:
+    """특정 도메인에 대한 전문 지식 스킬을 로드합니다.
+
+    Progressive Disclosure 패턴의 도구로, 시스템 프롬프트에는 스킬 이름과
+    한 줄 설명만 노출되고 상세 절차는 이 도구로 필요할 때만 로드됩니다.
+
+    **중요**: 스킬이 로드되면 그 안에 정의된 절차를 반드시 따라야 합니다.
+    스킬은 단순 참고 자료가 아니라 실행 지침입니다.
+
+    Args:
+        skill_name: 로드할 스킬 이름 (예: 'phishing-triage')
+
+    Returns:
+        스킬의 전체 내용(SKILL.md) 또는 오류 메시지
+    """
+    skills_dir = os.path.join(os.path.dirname(__file__), "skills")
+    skill_path = os.path.join(skills_dir, skill_name, "SKILL.md")
+
+    if not os.path.exists(skill_path):
+        available = []
+        if os.path.isdir(skills_dir):
+            available = [
+                d for d in os.listdir(skills_dir)
+                if os.path.exists(os.path.join(skills_dir, d, "SKILL.md"))
+            ]
+        msg = f"오류: '{skill_name}' 스킬을 찾을 수 없습니다."
+        if available:
+            msg += "\n\n사용 가능한 스킬:\n" + "\n".join(f"- {s}" for s in available)
+        else:
+            msg += "\n\n현재 사용 가능한 스킬이 없습니다."
+        return msg
+
+    try:
+        with open(skill_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        return f"오류: 스킬 로드 중 문제가 발생했습니다: {str(e)}"
+
+    print(f"\n[Skill] 스킬 로드: {skill_name}")
+    return (
+        f"[스킬 로드 완료: {skill_name}]\n"
+        f"{'=' * 70}\n{content}\n{'=' * 70}\n\n"
+        "**다음 단계**: 위 스킬에 정의된 절차를 단계별로 따라 실행하세요."
+    )
+
+@tool(parse_docstring=True)
+def PhishingAnalyzerSkill(email_text: str) -> str:
+    """의심스러운 이메일 분석을 위한 전용 Skill 파이프라인을 실행합니다. 
+    이 도구를 호출하면 내부적으로 파싱, URL 검사, 도메인 검사, 위험도 산정을 수행해야 합니다.
+
+    Args:
+        email_text: 분석할 이메일 원문 전체
+    """
+    return (
+        "[Skill Triggered] Phishing Analyzer Skill이 시작되었습니다. "
+        "다음 순서대로 도구를 직접 호출하세요: "
+        "1. EmailParserTool -> 2. URLSecurityCheckTool & DomainLookupTool -> 3. RiskScoreTool"
+    )
+
+CUSTOM_TOOLS.append(load_skill)
+load_skill_tool = load_skill
+
+
+@tool(parse_docstring=True)
+def PhishingAnalyzerSkill(email_text: str) -> str:
+    """의심스러운 이메일 분석을 위한 전용 Skill 파이프라인을 실행합니다.
+
+    이 도구를 호출하면 내부적으로 파싱, URL 검사, 도메인 검사, 위험도 산정을
+    순서대로 직접 수행해야 합니다.
+
+    Args:
+        email_text: 분석할 이메일 원문 전체
+
+    Returns:
+        이후 호출해야 할 도구 순서를 담은 실행 지침
+    """
+    return (
+        "[Skill Triggered] Phishing Analyzer Skill이 시작되었습니다. "
+        "다음 순서대로 도구를 직접 호출하세요: "
+        "1. EmailParserTool -> 2. URLSecurityCheckTool & DomainLookupTool "
+        "-> 3. ThreatIntelligenceSearchTool -> 4. RiskScoreTool. "
+        "최종 판정과 보고서 작성 직전에는 load_skill('phishing-triage')로 "
+        "판정 기준과 보고서 형식을 로드하여 그대로 적용하세요."
+    )
+
+
+CUSTOM_TOOLS.append(PhishingAnalyzerSkill)
+phishing_analyzer_skill = PhishingAnalyzerSkill

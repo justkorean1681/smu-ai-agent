@@ -6,9 +6,16 @@ import threading
 from collections import deque
 from pathlib import Path
 from datetime import datetime
-from typing import Any
+from typing import Any, Awaitable, Callable
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
-from langchain.agents.middleware import before_agent, wrap_tool_call, AgentState
+from langchain.agents.middleware import (
+    before_agent,
+    wrap_tool_call,
+    AgentState,
+    AgentMiddleware,
+    ModelRequest,
+    ModelResponse,
+)
 from langgraph.runtime import Runtime
 
 
@@ -420,3 +427,130 @@ def pii_input_masking_middleware(state: AgentState, runtime: Runtime) -> dict[st
         return {"messages": updated_messages}
 
     return None
+
+# ============================================
+# Skill Middleware (Progressive Disclosure)
+# ============================================
+
+def parse_skill_metadata() -> list[dict[str, str]]:
+    """skills 디렉터리의 모든 SKILL.md에서 name과 description을 추출합니다.
+
+    SKILL.md 상단의 YAML frontmatter만 읽으므로, 본문 전체를 시스템 프롬프트에
+    싣지 않고도 어떤 스킬이 있는지 에이전트에 알릴 수 있습니다.
+
+    Returns:
+        [{"name": ..., "description": ...}, ...] 형태의 리스트
+    """
+    skills: list[dict[str, str]] = []
+    skills_dir = os.path.join(os.path.dirname(__file__), "skills")
+
+    if not os.path.isdir(skills_dir):
+        return skills
+
+    for item in sorted(os.listdir(skills_dir)):
+        skill_file = os.path.join(skills_dir, item, "SKILL.md")
+        if not os.path.exists(skill_file):
+            continue
+        try:
+            with open(skill_file, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            print(f"[Skill] 스킬 {item} 읽기 실패: {e}")
+            continue
+
+        frontmatter_match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
+        if frontmatter_match:
+            frontmatter = frontmatter_match.group(1)
+            name_match = re.search(r"name:\s*(.+)", frontmatter)
+            desc_match = re.search(r"description:\s*(.+)", frontmatter)
+            skills.append({
+                "name": name_match.group(1).strip() if name_match else item,
+                "description": desc_match.group(1).strip() if desc_match else "스킬 설명 없음",
+            })
+        else:
+            skills.append({"name": item, "description": f"{item} 스킬"})
+
+    return skills
+
+
+SKILLS = parse_skill_metadata()
+
+
+class SkillMiddleware(AgentMiddleware):
+    """시스템 프롬프트에 사용 가능한 스킬 목록을 주입하는 미들웨어.
+
+    Progressive Disclosure 패턴:
+    - 여기서는 스킬의 이름과 한 줄 설명만 주입한다 (토큰 절약).
+    - 상세 절차는 에이전트가 `load_skill` 도구를 호출할 때만 로드된다.
+
+    적용 시점은 @wrap_model_call 이므로, 모델 호출 직전마다 최신 스킬 목록이
+    시스템 메시지 뒤에 덧붙는다.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        if SKILLS:
+            self.skills_prompt = "\n".join(
+                f"- **{s['name']}**: {s['description']}" for s in SKILLS
+            )
+        else:
+            self.skills_prompt = "현재 등록된 스킬이 없습니다."
+        print(f"\n[Skill] 스킬 {len(SKILLS)}개 로드됨: "
+              f"{', '.join(s['name'] for s in SKILLS) if SKILLS else '없음'}")
+
+    def _addendum(self) -> str:
+        return (
+            f"\n\n## 사용 가능한 스킬 (Available Skills)\n\n{self.skills_prompt}\n\n"
+            "**중요**: 위 설명에 해당하는 작업을 수행할 때는 `load_skill` 도구로 "
+            "해당 스킬의 상세 절차를 먼저 로드하고, 로드된 절차를 그대로 따르세요. "
+            "특히 최종 판정과 보고서 작성 단계에서는 반드시 스킬 기준을 적용하세요."
+        )
+
+    def _with_skills(self, request: ModelRequest) -> ModelRequest:
+        new_content = list(request.system_message.content_blocks) + [
+            {"type": "text", "text": self._addendum()}
+        ]
+        return request.override(system_message=SystemMessage(content=new_content))
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        return handler(self._with_skills(request))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        # LangGraph Studio, astream(), ainvoke() 등 비동기 경로에서 사용됨
+        return await handler(self._with_skills(request))
+
+
+# ============================================
+# Skill Lifecycle Middleware
+# ============================================
+
+@wrap_tool_call
+async def skill_lifecycle_middleware(request, handler):
+    """Skill Lifecycle Middleware
+
+    이름이 'Skill'로 끝나는 메타 도구(예: PhishingAnalyzerSkill)의 호출을 감지하여
+    스킬 워크플로우의 시작과 컨텍스트 로드 완료를 로그로 남깁니다.
+
+    메타 도구 자체는 실행 지침만 반환하므로, 이 로그는 LLM이 실제로 스킬 절차에
+    진입했는지 추적하는 관찰 지점 역할을 합니다.
+    """
+    tool_name = request.tool_call["name"]
+    is_skill = tool_name.endswith("Skill")
+
+    if is_skill:
+        print(f"\n[Skill Action] {tool_name} 활성화: 스킬 기반 워크플로우를 시작합니다.")
+
+    result = await handler(request)
+
+    if is_skill:
+        print(f"[Skill Action] {tool_name} 컨텍스트 로드 완료. 세부 도구 호출 대기 중.")
+
+    return result
