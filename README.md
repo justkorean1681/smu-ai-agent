@@ -59,6 +59,18 @@ LangChain 기반으로 구현되었으며, 이메일 내의 텍스트, URL, 발�
 
 > **알려진 제한사항**: 위 미들웨어들은 새로 시작되는 요청/대화 기준으로 동작합니다. 이미 진행 중이던 대화(Thread)에 마스킹 적용 이전 시점의 `ToolMessage`(예: 이전 턴에서 실행된 `EmailParserTool` 결과)가 남아있는 경우, 해당 과거 기록까지 소급 마스킹되지는 않습니다. 코드 변경 후 검증할 때는 새 Thread에서 테스트하는 것을 권장합니다.
 
+## 스킬(SKILL)
+# 1. Phishing Analyzer Skill (분석 파이프라인 자동화 스킬)
+**기능:** 의심스러운 이메일 원문이나 텍스트를 입력받아 정보 추출부터 위협 인텔리전스 검색까지의 **전체 보안 분석 파이프라인을 자동화하고 지휘**하는 메타 도구(Meta-tool)입니다. LLM이 중구난방으로 도구를 호출하지 않고, 정해진 규칙과 순서에 따라 체계적인 분석을 수행하도록 강제합니다.
+
+**자동화 프로세스 (3단계):**
+1. **정보 구조화 및 전처리 (Email Parser):** 
+   `EmailParserTool`을 호출하여 발신자, URL, 첨부파일 등 핵심 위협 지표(IOC)를 추출합니다. (이 과정에서 발견된 프롬프트 인젝션 시도는 시스템 미들웨어가 자동 차단합니다.)
+2. **위협 요소 개별 검증 (Security Check & Domain Lookup):** 
+   추출된 URL은 `URLSecurityCheckTool`로, 발신자 도메인은 `DomainLookupTool`로, 의심 키워드는 `ThreatIntelligenceSearchTool`로 각각 넘겨 개별 신뢰성과 위험도를 정밀 검증합니다.
+3. **종합 위험도 산출 (Risk Scoring):** 
+   앞선 모든 검증 지표를 `RiskScoreTool`에 전달하여 최종적으로 [안전 / 의심 / 악성] 등급을 판정하고, 사용자 친화적인 요약 보고서를 생성합니다.
+
 ## 분석 절차 (Workflow)
 
 0. **(보안 미들웨어)** 요청이 들어오면 `rate_limiter_middleware`가 identifier별 호출 횟수를 확인하여 과도한 요청은 LLM 호출 전에 차단합니다.
