@@ -382,24 +382,6 @@ def load_skill(skill_name: str) -> str:
 
 @tool(parse_docstring=True)
 def PhishingAnalyzerSkill(email_text: str) -> str:
-    """의심스러운 이메일 분석을 위한 전용 Skill 파이프라인을 실행합니다. 
-    이 도구를 호출하면 내부적으로 파싱, URL 검사, 도메인 검사, 위험도 산정을 수행해야 합니다.
-
-    Args:
-        email_text: 분석할 이메일 원문 전체
-    """
-    return (
-        "[Skill Triggered] Phishing Analyzer Skill이 시작되었습니다. "
-        "다음 순서대로 도구를 직접 호출하세요: "
-        "1. EmailParserTool -> 2. URLSecurityCheckTool & DomainLookupTool -> 3. RiskScoreTool"
-    )
-
-CUSTOM_TOOLS.append(load_skill)
-load_skill_tool = load_skill
-
-
-@tool(parse_docstring=True)
-def PhishingAnalyzerSkill(email_text: str) -> str:
     """의심스러운 이메일 분석을 위한 전용 Skill 파이프라인을 실행합니다.
 
     이 도구를 호출하면 내부적으로 파싱, URL 검사, 도메인 검사, 위험도 산정을
@@ -419,6 +401,9 @@ def PhishingAnalyzerSkill(email_text: str) -> str:
         "최종 판정과 보고서 작성 직전에는 load_skill('phishing-triage')로 "
         "판정 기준과 보고서 형식을 로드하여 그대로 적용하세요."
     )
+
+CUSTOM_TOOLS.append(load_skill)
+load_skill_tool = load_skill
 
 
 CUSTOM_TOOLS.append(PhishingAnalyzerSkill)
